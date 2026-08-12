@@ -177,4 +177,14 @@ func main() {
 	if err := http.ListenAndServe(":8000", nil); err != nil {
 		log.Fatal(err)
 	}
+	
+	// Маршруты для фронтенда (совпадают с index.html на 100%)
+	http.HandleFunc("/api/rooms", GetRoomsHandler)
+	http.HandleFunc("/api/book", BookRoomHandler) // Теперь адрес строго /api/book
+
+	fmt.Println("Сервер отеля «Silence» запущен на http://localhost:8000")
+	if err := http.ListenAndServe(":8000", nil); err != nil {
+		log.Fatal(err)
+	}
 }
+
