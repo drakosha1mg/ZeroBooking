@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Отель «Silence» — Бронирование</title>
+    <script src="https://tailwindcss.com"></script>
+    <style>
+        @import url('https://googleapis.com');
+        body { font-family: 'Inter', sans-serif; background-color: #ffffff; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between p-6 md:p-12 text-[#1a1a1a]">
+
+    <!-- ШАПКА ХОСТЕЛА -->
+    <header class="max-w-4xl w-full mx-auto pt-4 border-b border-gray-100 pb-8">
+        <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+            <div>
+                <span class="text-xs uppercase tracking-[0.2em] text-gray-400 font-medium">Hostel & Spaces</span>
+                <h1 class="text-3xl font-light tracking-tight text-gray-900 mt-1">Отель «Silence»</h1>
+            </div>
+            <p class="text-sm text-gray-400 font-light max-w-xs md:text-right">
+                Интерактивная карта номеров. Нажмите на свободный номер для подтверждения брони.
+            </p>
+        </div>
+    </header>
+
+    <!-- ИНТЕРАКТИВНАЯ КАРТА (ЭТАЖ) И ПАНЕЛЬ ВВОДА EMAIL -->
+    <main class="max-w-4xl w-full mx-auto py-12 space-y-8">
+        
+        <!-- Тонкие индикаторы статусов -->
+        <div class="flex items-center gap-6 justify-center md:justify-start text-xs uppercase tracking-widest text-gray-400 font-medium">
+            <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-[#f9fafb] border border-gray-200"></span> 
+                <span>Свободно</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-[#374151]"></span> 
+                <span>Занято</span>
+            </div>
+        </div>
+
+        <!-- Модуль бронирования (Появляется плавно при выборе номера) -->
+        <div id="booking-panel" class="hidden border border-gray-100 rounded-2xl p-6 bg-[#fafafa] flex flex-col sm:flex-row items-center justify-between gap-4 transition-all duration-300">
+            <div>
+                <p class="text-xs uppercase tracking-wider text-gray-400 font-medium">Выбран номер <span id="selected-room-num" class="text-gray-900 font-bold">---</span></p>
+                <p class="text-sm text-gray-500 font-light mt-0.5">Для подтверждения введите ваш Email. Туда придет подтверждение.</p>
+            </div>
+            <div class="flex w-full sm:w-auto gap-2">
+                <input type="email" id="user-email" placeholder="example@mail.ru" class="bg-white border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-gray-400 w-full sm:w-64">
+                <button type="button" onclick="submitBooking()" class="bg-[#1a1a1a] hover:bg-[#333333] text-white text-sm font-medium px-6 py-2 rounded-xl transition shadow-sm whitespace-nowrap">
+                    Забронировать
+                </button>
+            </div>
+        </div>
+
+        <!-- Архитектурная Grid-карта комнат -->
+        <div class="border border-gray-100 rounded-2xl p-8 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+            <div class="flex items-center justify-between mb-8 border-b border-gray-50 pb-4">
+                <h2 class="text-xs uppercase tracking-[0.15em] font-medium text-gray-400">План этажа &bull; Level 2</h2>
+                <span class="text-xs text-gray-300 font-light">Автообновление активна</span>
+            </div>
+
+            <div id="floor-grid" class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <!-- Рендеринг через JS -->
+            </div>
+        </div>
+
+    </main>
+
+    <!-- НИЖНЯЯ ЧАСТЬ -->
+    <footer class="max-w-4xl w-full mx-auto border-t border-gray-100 pt-6 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-gray-400 font-light">
+        <div>&copy; 2026 Отель «Silence». Мгновенные Email-уведомления.</div>
+        <div class="flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            Связь с сервером установлена
+        </div>
+    </footer>
+        <script>
+        const API_URL = 'http://localhost:8000/api';
+        let roomsData = [];
+        let selectedRoomId = null;
+
+        async function init() {
+            await fetchRooms();
+            setInterval(fetchRooms, 4000); // Автоматический опрос сервера раз в 4 секунды
+        }
+
+        async function fetchRooms() {
+            try {
+                const response = await fetch(`${API_URL}/rooms`);
+                roomsData = await response.json();
+                renderMap();
+            } catch (error) {
+                console.error("Сервер недоступен");
+            }
+        }
+
+        function renderMap() {
+            const gridContainer = document.getElementById('floor-grid');
+            gridContainer.innerHTML = '';
+
+            roomsData.sort((a, b) => a.number.localeCompare(b.number));
+
+            roomsData.forEach(room => {
+                const element = document.createElement('button');
+                element.type = 'button';
+
+                let stateClasses = '';
+                const isBooked = room.status === 'booked';
+
+                if (isBooked) {
+                    stateClasses = 'bg-[#374151] text-gray-200 border-transparent cursor-not-allowed';
+                    element.disabled = true;
+                } else if (room.id === selectedRoomId) {
+                    stateClasses = 'bg-white text-blue-600 border-blue-500 ring-2 ring-blue-50';
+                } else {
+                    stateClasses = 'bg-[#f9fafb] text-gray-800 border-gray-200 hover:bg-[#f3f4f6] hover:border-gray-300';
+                }
+
+                element.className = `${stateClasses} border rounded-xl p-5 text-left flex flex-col justify-between h-32 transition-all duration-300 ease-out focus:outline-none`;
+                element.innerHTML = `
+                    <div class="flex justify-between items-start w-full">
+                        <span class="text-xl font-light tracking-tight">${room.number}</span>
+                        <span class="w-1.5 h-1.5 rounded-full ${isBooked ? 'bg-gray-400' : (room.id === selectedRoomId ? 'bg-blue-500' : 'bg-gray-300')}"></span>
+                    </div>
+                    <span class="text-[10px] uppercase tracking-wider text-gray-400 font-medium">${room.type}</span>
+                `;
+
+                if (!isBooked) {
+                    element.onclick = () => toggleSelectRoom(room);
+                }
+
+                gridContainer.appendChild(element);
+            });
+        }
+
+        function toggleSelectRoom(room) {
+            const panel = document.getElementById('booking-panel');
+            if (selectedRoomId === room.id) {
+                selectedRoomId = null;
+                panel.classList.add('hidden');
+            } else {
+                selectedRoomId = room.id;
+                document.getElementById('selected-room-num').innerText = room.number;
+                panel.classList.remove('hidden');
+            }
+            renderMap();
+        }
+
+        async function submitBooking() {
+            const emailInput = document.getElementById('user-email').value.trim();
+            if (!emailInput || !emailInput.includes('@')) {
+                alert("Пожалуйста, введите корректный Email адрес.");
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/book`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ room_id: selectedRoomId, user_email: emailInput })
+                });
+
+                if (response.ok) {
+                    alert("Успешно! Номер забронирован. Подтверждение отправлено на вашу почту.");
+                    selectedRoomId = null;
+                    document.getElementById('user-email').value = '';
+                    document.getElementById('booking-panel').classList.add('hidden');
+                    await fetchRooms();
+                } else {
+                    const errText = await response.text();
+                    alert("Ошибка при бронировании: " + errText);
+                }
+            } catch (error) {
+                alert("Не удалось связаться с сервером.");
+            }
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
