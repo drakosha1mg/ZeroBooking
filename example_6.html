@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zero Booking Example</title>
+    <link rel="preconnect" href="https://googleapis.com">
+    <link rel="preconnect" href="https://gstatic.com" crossorigin>
+    <link href="https://googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --text-primary: #1A1A1D;
+            --text-secondary: #7D7D81;
+            --bg-main: #F6F6F9;
+            --yandex-yellow: #F5C423;
+            --yandex-yellow-hover: #E3B41B;
+            --border-color: #EAEAEA;
+            
+            --room-free: rgba(74, 201, 153, 0.12);
+            --room-free-border: #4AC999;
+            --room-booked: #F1F1F4;
+            --room-booked-border: #FFFFFF;
+            --room-selected-border: #1A1A1D;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
+        body { background-color: var(--bg-main); color: var(--text-primary); height: 100vh; display: flex; overflow: hidden; }
+        .app-container { display: flex; width: 100%; height: 100%; }
+        
+        /* Секция интерактивной карты */
+        .map-section { flex: 1; position: relative; height: 100%; overflow: hidden; background: #EDEEF2; cursor: grab; }
+        .map-section:active { cursor: grabbing; }
+        .map-viewport { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+        
+        svg { width: 700px; height: 700px; user-select: none; will-change: transform; background: #EDEEF2; }
+
+        /* Динамические стили комнат */
+        .room { transition: fill 0.2s ease, stroke 0.2s ease; stroke-width: 2px; rx: 12px; ry: 12px; }
+        .room.free { fill: var(--room-free); stroke: var(--room-free-border); cursor: pointer; }
+        .room.free:hover { fill: rgba(74, 201, 153, 0.25); }
+        .room.booked { fill: var(--room-booked); stroke: var(--room-booked-border); cursor: not-allowed; }
+        .room.selected { stroke: var(--room-selected-border) !important; stroke-width: 4px; }
+
+        /* Архитектурный минимализм */
+        .corridor-bg { fill: #FFFFFF; rx: 12px; ry: 12px; stroke: var(--border-color); stroke-width: 1px; }
+        .arch-element { fill: none; stroke-linecap: round; }
+        .window { stroke: #BDC3C7; stroke-width: 4px; }
+        .door { stroke: #FFFFFF; stroke-width: 4px; }
+        .stairs-line { stroke: #DCDDE1; stroke-width: 2px; }
+        .stairs-arrow { fill: none; stroke: var(--text-secondary); stroke-width: 2px; stroke-dasharray: 4; }
+
+        /* Текстовые метки */
+        .room-label { font-size: 15px; font-weight: 600; fill: var(--text-primary); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+        .room.booked + .room-label { fill: var(--text-secondary); }
+        .corridor-label { font-size: 13px; font-weight: 500; fill: var(--text-secondary); text-anchor: middle; dominant-baseline: central; pointer-events: none; letter-spacing: 1px; }
+
+        /* Тулбары управления (Яндекс.Карты) */
+        .floor-switcher { position: absolute; top: 24px; left: 24px; background: #FFFFFF; padding: 4px; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.06); border: 1px solid var(--border-color); display: flex; gap: 4px; z-index: 10; }
+        .floor-btn { padding: 10px 18px; border: none; background: none; font-size: 14px; font-weight: 600; color: var(--text-secondary); cursor: pointer; border-radius: 8px; transition: all 0.15s; }
+        .floor-btn.active { background: var(--text-primary); color: #FFFFFF; }
+
+        .map-controls { position: absolute; top: 24px; right: 24px; background: #FFFFFF; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.06); border: 1px solid var(--border-color); display: flex; flex-direction: column; overflow: hidden; z-index: 10; }
+        .control-btn { width: 44px; height: 44px; border: none; background: #FFFFFF; font-size: 20px; font-weight: 500; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
+        .control-btn:not(:last-child) { border-bottom: 1px solid var(--border-color); }
+        .control-btn:hover { background: var(--bg-main); }
+
+        /* Сайдбар */
+        .sidebar { width: 400px; background: #FFFFFF; border-left: 1px solid var(--border-color); display: flex; flex-direction: column; height: 100%; z-index: 5; box-shadow: -4px 0 24px rgba(0,0,0,0.02); }
+        .sidebar-header { padding: 24px; border-bottom: 1px solid var(--border-color); }
+        .logo-text { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; color: var(--text-primary); }
+        .sidebar-content { padding: 24px; flex: 1; overflow-y: auto; }
+        
+        .placeholder-view { display: flex; height: 100%; align-items: center; justify-content: center; text-align: center; color: var(--text-secondary); font-size: 14px; }
+        .room-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.3px; }
+        .status-text { font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 20px; }
+        .price-block { margin-bottom: 24px; background: var(--bg-main); padding: 16px; border-radius: 12px; }
+        .price-value { font-size: 26px; font-weight: 700; }
+        .price-label { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+        .description { font-size: 14px; line-height: 1.6; color: #333336; margin-bottom: 24px; }
+
+        .book-btn { width: 100%; background: var(--yandex-yellow); color: var(--text-primary); border: none; padding: 16px; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.15s; margin-top: 12px; }
+        .book-btn:hover { background: var(--yandex-yellow-hover); }
+        .book-btn:disabled { background: #EAEAEA; color: var(--text-secondary); cursor: not-allowed; }
+
+        /* Окно предоплаты */
+        .payment-modal { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.4); display: flex; align-items: center; justify-content: center; z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.25s ease-out; }
+        .payment-modal.active { opacity: 1; pointer-events: auto; }
+        .payment-card { background: #FFFFFF; width: 440px; border-radius: 20px; padding: 32px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12); position: relative; transform: translateY(20px); transition: transform 0.25s ease-out; }
+        .payment-modal.active .payment-card { transform: translateY(0); }
+        .close-modal-btn { position: absolute; top: 20px; right: 20px; background: none; border: none; font-size: 24px; color: var(--text-secondary); cursor: pointer; }
+        .payment-subtitle { font-size: 14px; color: var(--text-secondary); margin-bottom: 24px; }
+        .order-summary { background: var(--bg-main); padding: 16px; border-radius: 12px; margin-bottom: 24px; }
+        .order-row { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px; }
+        .order-row:last-child { margin-bottom: 0; padding-top: 8px; border-top: 1px dashed #DDD; font-weight: 700; font-size: 16px; }
+        .pay-form-group { margin-bottom: 18px; }
+        .pay-form-group label { display: block; font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+        .pay-form-group input { width: 100%; padding: 14px 16px; border: 1px solid var(--border-color); border-radius: 10px; font-size: 15px; outline: none; background: var(--bg-main); }
+        .pay-form-group input:focus { border-color: var(--text-primary); background: #FFFFFF; }
+        .sbp-btn { width: 100%; background: #1A1A1D; color: #FFFFFF; border: none; padding: 16px; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 28px; }
+        .sbp-btn:hover { background: #333336; }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        <main class="map-section" id="map-section">
+            <div class="floor-switcher">
+                <button class="floor-btn active" onclick="switchFloor(1)">1 этаж</button>
+                <button class="floor-btn" onclick="switchFloor(2)">2 этаж</button>
+                <button class="floor-btn" onclick="switchFloor(3)">3 этаж</button>
+            </div>
+
+            <div class="map-controls">
+                <button class="control-btn" onclick="zoomIn()">+</button>
+                <button class="control-btn" onclick="zoomOut()">−</button>
+                <button class="control-btn" onclick="resetView()">⟲</button>
+            </div>
+            
+            <div class="map-viewport">
+                <svg id="svg-canvas" viewBox="0 0 700 700" version="1.1" xmlns="http://w3.org">
+                    <!-- Карта генерируется динамически скриптом -->
+                </svg>
+            </div>
+        </main>
+
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo-text">Хостел "Да"</div>
+            </div>
+            <div class="sidebar-content">
+                <div id="placeholder" class="placeholder-view">
+                    <p>Выберите номер на карте хостела</p>
+                </div>
+                <div id="details" style="display: none;">
+                    <h2 id="room-title" class="room-title">-</h2>
+                    <div id="room-status" class="status-text">-</div>
+                    <div class="price-block">
+                        <div id="room-price" class="price-value">-</div>
+                        <div class="price-label">цена за 1 ночь размещения</div>
+                    </div>
+                    <p id="room-desc" class="description">-</p>
+                                        <div id="booking-action-area"></div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <div class="payment-modal" id="payment-modal">
+        <div class="payment-card">
+            <button class="close-modal-btn" onclick="closePaymentModal()">&times;</button>
+            <h3 style="font-size:22px; font-weight:700; margin-bottom:6px;">Предоплата бронирования</h3>
+            <p class="payment-subtitle">Пожалуйста, проверьте данные перед оплатой</p>
+            
+            <div class="order-summary">
+                <div class="order-row"><span style="color:var(--text-secondary);">Номер:</span><span id="summary-room-title">-</span></div>
+                <div class="order-row"><span style="color:var(--text-secondary);">Период:</span><span>1 ночь</span></div>
+                <div class="order-row"><span>К оплате:</span><span id="summary-room-price" style="color:#2FA87B;">-</span></div>
+            </div>
+
+            <div class="pay-form-group"><label>ФИО гостя</label><input type="text" id="pay-guest-name" placeholder="Иванов Иван Иванович"></div>
+            <div class="pay-form-group"><label>Номер телефона</label><input type="tel" id="pay-guest-phone" placeholder="+7 (999) 000-00-00"></div>
+
+            <button class="sbp-btn" onclick="processPayment()">Оплатить через СБП</button>
+        </div>
+    </div>
+
+    <script>
+        // Генерация базы данных на 3 этажа и 10 комнат на каждом
+        const floorsDatabase = {};
+        
+        for (let floor = 1; floor <= 3; floor++) {
+            floorsDatabase[floor] = { rooms: {} };
+            for (let r = 1; r <= 10; r++) {
+                const roomId = `${floor}${String(r).padStart(2, '0')}`;
+                const isBooked = (parseInt(roomId) % 3 === 0);
+                
+                floorsDatabase[floor].rooms[roomId] = {
+                    title: `Номер ${roomId}`,
+                    status: isBooked ? 'booked' : 'free',
+                    price: floor === 1 ? '1 100 ₽' : floor === 2 ? '1 500 ₽' : '2 400 ₽',
+                    desc: floor === 3 
+                        ? `Улучшенный изолированный номер люкс класса на тихом третьем этаже.` 
+                        : `Комфортное место в общем дорм-номере на ${floor === 1 ? '8 коек' : '4 койки'}.`
+                };
+            }
+        }
+
+        let activeFloor = 1;
+        let targetBookingRoomId = null;
+        const mapSection = document.getElementById('map-section');
+        const svg = document.getElementById('svg-canvas');
+
+        const viewState = { zoom: 1, x: 0, y: 0, isDragging: false, startX: 0, startY: 0 };
+        const SVG_BASE_WIDTH = 700;
+        const SVG_BASE_HEIGHT = 700;
+
+        function renderFloorPlan(floorNum) {
+            let svgMarkup = `
+                <text x="350" y="352" class="corridor-label">ЦЕНТРАЛЬНЫЙ КОРИДОР ${floorNum} ЭТАЖА</text>
+            `;
+
+            const rooms = Object.keys(floorsDatabase[floorNum].rooms);
+            
+            rooms.forEach((roomId, index) => {
+                let x, y;
+                const width = 110;
+                const height = 180;
+                const gap = 16;
+                const startX = 40;
+
+                if (index < 5) {
+                    x = startX + index * (width + gap);
+                    y = 80;
+                } else {
+                    x = startX + (index - 5) * (width + gap);
+                    y = 440;
+                }
+
+                svgMarkup += `
+                    <g>
+                        <rect id="room-${roomId}" class="room" x="${x}" y="${y}" width="${width}" height="${height}" onclick="selectRoom('${roomId}')"/>
+                        <text x="${x + width/2}" y="${y + height/2}" class="room-label">${roomId}</text>
+                        <line class="arch-element window" x1="${x + 30}" y1="${index < 5 ? y : y + height}" x2="${x + 80}" y2="${index < 5 ? y : y + height}"/>
+                        <line class="arch-element door" x1="${x + 40}" y1="${index < 5 ? y + height : y}" x2="${x + 70}" y2="${index < 5 ? y + height : y}"/>
+                    </g>
+                `;
+            });
+
+            svgMarkup += `
+                <g transform="translate(530, 295)">
+                    <rect x="0" y="0" width="130" height="110" fill="#FFFFFF" rx="12" ry="12" stroke="#EAEAEA" stroke-width="1"/>
+                    <line class="arch-element stairs-line" x1="0" y1="20" x2="130" y2="20"/>
+                    <line class="arch-element stairs-line" x1="0" y1="40" x2="130" y2="40"/>
+                    <line class="arch-element stairs-line" x1="0" y1="60" x2="130" y2="60"/>
+                    <line class="arch-element stairs-line" x1="0" y1="80" x2="130" y2="80"/>
+                    <path class="arch-element stairs-arrow" d="M 65 95 L 65 15 M 65 15 L 55 28 M 65 15 L 75 28"/>
+                    <text x="65" y="100" class="corridor-label" style="font-size:9px;">ЛЕСТНИЧНЫЙ МАРШ</text>
+                </g>
+                <line class="arch-element door" x1="530" y1="330" x2="530" y2="370"/>
+            `;
+
+            svg.innerHTML = svgMarkup;
+            syncFloorStatuses();
+        }
+                function switchFloor(floorNum) {
+            activeFloor = floorNum;
+            document.querySelectorAll('.floor-btn').forEach(btn => btn.classList.remove('active'));
+            if (event) event.target.classList.add('active');
+
+            renderFloorPlan(floorNum);
+            document.getElementById('placeholder').style.display = 'flex';
+            document.getElementById('details').style.display = 'none';
+        }
+
+        function syncFloorStatuses() {
+            const currentFloorRooms = floorsDatabase[activeFloor].rooms;
+            Object.keys(currentFloorRooms).forEach(id => {
+                const el = document.getElementById(`room-${id}`);
+                if (el) el.setAttribute('class', `room ${currentFloorRooms[id].status}`);
+            });
+        }
+
+        function applyTransform() {
+            const width = SVG_BASE_WIDTH / viewState.zoom;
+            const height = SVG_BASE_HEIGHT / viewState.zoom;
+            svg.setAttribute('viewBox', `${viewState.x} ${viewState.y} ${width} ${height}`);
+        }
+
+        function selectRoom(id) {
+            document.querySelectorAll('.room').forEach(el => el.classList.remove('selected'));
+            document.getElementById(`room-${id}`).classList.add('selected');
+
+            const data = floorsDatabase[activeFloor].rooms[id];
+            document.getElementById('placeholder').style.display = 'none';
+            document.getElementById('details').style.display = 'block';
+            document.getElementById('room-title').innerText = data.title;
+            document.getElementById('room-price').innerText = data.price;
+            document.getElementById('room-desc').innerText = data.desc;
+
+            const badge = document.getElementById('room-status');
+            const actionArea = document.getElementById('booking-action-area');
+
+            if (data.status === 'free') {
+                badge.innerText = 'Доступно';
+                badge.style.color = '#2FA87B';
+                actionArea.innerHTML = `<button class="book-btn" onclick="openPaymentModal('${id}')">Забронировать номер</button>`;
+            } else {
+                badge.innerText = 'Занято';
+                badge.style.color = '#7D7D81';
+                actionArea.innerHTML = `<button class="book-btn" disabled>Номер забронирован</button>`;
+            }
+        }
+
+        function openPaymentModal(id) {
+            targetBookingRoomId = id;
+            const data = floorsDatabase[activeFloor].rooms[id];
+            document.getElementById('summary-room-title').innerText = data.title;
+            document.getElementById('summary-room-price').innerText = data.price;
+            document.getElementById('pay-guest-name').value = '';
+            document.getElementById('pay-guest-phone').value = '';
+            document.getElementById('payment-modal').classList.add('active');
+        }
+
+        function closePaymentModal() {
+            document.getElementById('payment-modal').classList.remove('active');
+            targetBookingRoomId = null;
+        }
+
+        function processPayment() {
+            const name = document.getElementById('pay-guest-name').value.trim();
+            const phone = document.getElementById('pay-guest-phone').value.trim();
+
+            if (!name || !phone) return alert('Пожалуйста, заполните данные!');
+
+            closePaymentModal();
+            floorsDatabase[activeFloor].rooms[targetBookingRoomId].status = 'booked';
+            document.getElementById(`room-${targetBookingRoomId}`).setAttribute('class', 'room booked selected');
+            alert(`Оплата успешно зачислена!\nНомер ${targetBookingRoomId} заблокирован за вами.`);
+            selectRoom(targetBookingRoomId);
+        }
+
+        mapSection.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const rect = svg.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            const svgMouseX = viewState.x + (mouseX / rect.width) * (SVG_BASE_WIDTH / viewState.zoom);
+            const svgMouseY = viewState.y + (mouseY / rect.height) * (SVG_BASE_HEIGHT / viewState.zoom);
+
+            const zoomFactor = 1.15;
+            if (e.deltaY < 0) viewState.zoom = Math.min(viewState.zoom * zoomFactor, 6);
+            else viewState.zoom = Math.max(viewState.zoom / zoomFactor, 0.7);
+
+            viewState.x = svgMouseX - (mouseX / rect.width) * (SVG_BASE_WIDTH / viewState.zoom);
+            viewState.y = svgMouseY - (mouseY / rect.height) * (SVG_BASE_HEIGHT / viewState.zoom);
+            applyTransform();
+        }, { passive: false });
+
+        mapSection.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.map-controls') || e.target.closest('.room') || e.target.closest('.floor-switcher')) return;
+            viewState.isDragging = true;
+            viewState.startX = e.clientX; viewState.startY = e.clientY;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!viewState.isDragging) return;
+            const rect = svg.getBoundingClientRect();
+            const deltaX = e.clientX - viewState.startX;
+            const deltaY = e.clientY - viewState.startY;
+
+            viewState.x -= (deltaX / rect.width) * (SVG_BASE_WIDTH / viewState.zoom);
+            viewState.y -= (deltaY / rect.height) * (SVG_BASE_HEIGHT / viewState.zoom);
+            viewState.startX = e.clientX; viewState.startY = e.clientY;
+            applyTransform();
+        });
+
+        window.addEventListener('mouseup', () => { viewState.isDragging = false; });
+
+        function zoomIn() { changeZoomCentric(1.3); }
+        function zoomOut() { changeZoomCentric(1 / 1.3); }
+
+        function changeZoomCentric(factor) {
+            const rect = svg.getBoundingClientRect();
+            const centerX = rect.width / 2; const centerY = rect.height / 2;
+            const svgCenterX = viewState.x + (centerX / rect.width) * (SVG_BASE_WIDTH / viewState.zoom);
+            const svgCenterY = viewState.y + (centerY / rect.height) * (SVG_BASE_HEIGHT / viewState.zoom);
+
+            viewState.zoom = Math.max(0.7, Math.min(6, viewState.zoom * factor));
+            viewState.x = svgCenterX - (centerX / rect.width) * (SVG_BASE_WIDTH / viewState.zoom);
+            viewState.y = svgCenterY - (centerY / rect.height) * (SVG_BASE_HEIGHT / viewState.zoom);
+            applyTransform();
+        }
+
+        function resetView() { viewState.zoom = 1; viewState.x = 0; viewState.y = 0; applyTransform(); }
+
+        switchFloor(1);
+    </script>
+</body>
+</html>
