@@ -138,7 +138,6 @@ func RootHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Маршруты и хвосты ссылок для локальной работы
 	http.HandleFunc("/", RootHandler)
 	http.HandleFunc("/api/rooms", GetRoomsHandler)
 	http.HandleFunc("/api/book", BookRoomHandler)
