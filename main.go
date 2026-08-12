@@ -1,12 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
-	"net/smtp"
 	"sync"
 	"time"
 )
@@ -14,10 +11,11 @@ import (
 type RoomStatus string
 
 const (
-	StatusFree   RoomStatus = "free"
-	StatusBooked RoomStatus = "booked"
+	StatusFree   RoomStatus = "free"   // Светло-серый цвет на фронтенде
+	StatusBooked RoomStatus = "booked" // Темно-серый цвет на фронтенде
 )
 
+// Структура номера отеля
 type Room struct {
 	ID     int        `json:"id"`
 	Number string     `json:"number"`
@@ -25,6 +23,7 @@ type Room struct {
 	Status RoomStatus `json:"status"`
 }
 
+// Структура оформленной брони
 type Booking struct {
 	ID        int       `json:"id"`
 	RoomID    int       `json:"room_id"`
@@ -32,12 +31,14 @@ type Booking struct {
 	BookedAt  time.Time `json:"booked_at"`
 }
 
+// Потокобезопасная база данных в оперативной памяти (Защита от Race Conditions)
 type Store struct {
 	sync.RWMutex
 	Rooms    map[int]*Room
 	Bookings []Booking
 }
 
+// Инициализируем пример этажа (номера 202, 205, 207 заняты по умолчанию)
 var db = &Store{
 	Rooms: map[int]*Room{
 		201: {ID: 201, Number: "201", Type: "Standard", Status: StatusFree},
@@ -51,26 +52,25 @@ var db = &Store{
 	},
 }
 
-func sendEmailNotification(userEmail, roomNumber, roomType string) {
-	// Демо-заглушка. Письмо логируется в терминал сервера, чтобы не вызывать зависаний
-	log.Printf("[Имитация SMTP]: Отправка письма на %s. Номер %s забронирован.", userEmail, roomNumber)
-	
-	// Если захотите включить настоящую отправку, раскомментируйте код ниже:
-	/*
-	auth := smtp.PlainAuth("", "user@yandex.ru", "password", "smtp.yandex.ru")
-	msg := []byte("Subject: Бронь\n\nНомер забронирован.")
-	smtp.SendMail("smtp.yandex.ru:587", auth, "user@yandex.ru", []string{userEmail}, msg)
-	*/
+// Асинхронный триггер для Email-нотификации
+func sendEmailNotification(userEmail, roomNumber string) {
+	// Демо-заглушка: выводит лог отправки прямо в терминал вашего localhost
+	log.Printf("[SMTP LOCALHOST]: Отправка подтверждения на %s. Номер %s успешно забронирован.", userEmail, roomNumber)
 }
 
+// Включение CORS-заголовков, чтобы локальный файл index.html мог общаться с бэкендом
 func setupCORS(w *http.ResponseWriter) {
 	(*w).Header().Set("Access-Control-Allow-Origin", "*")
 	(*w).Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 	(*w).Header().Set("Access-Control-Allow-Headers", "Content-Type")
 }
+
+// Получение комнат для сетки фронтенда
 func GetRoomsHandler(w http.ResponseWriter, r *http.Request) {
 	setupCORS(&w)
-	if r.Method == "OPTIONS" { return }
+	if r.Method == "OPTIONS" {
+		return
+	}
 
 	db.RLock()
 	defer db.RUnlock()
@@ -84,9 +84,12 @@ func GetRoomsHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(list)
 }
 
+// Обработка кнопки «Забронировать»
 func BookRoomHandler(w http.ResponseWriter, r *http.Request) {
 	setupCORS(&w)
-	if r.Method == "OPTIONS" { return }
+	if r.Method == "OPTIONS" {
+		return
+	}
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -105,10 +108,11 @@ func BookRoomHandler(w http.ResponseWriter, r *http.Request) {
 	room, exists := db.Rooms[req.RoomID]
 	if !exists || room.Status != StatusFree {
 		db.Unlock()
-		http.Error(w, "Номер занят", http.StatusConflict)
+		http.Error(w, "Номер уже занят", http.StatusConflict)
 		return
 	}
 
+	// Переводим статус в занят (комната сразу станет темно-серой для всех)
 	room.Status = StatusBooked
 	db.Bookings = append(db.Bookings, Booking{
 		ID:        len(db.Bookings) + 1,
@@ -118,28 +122,30 @@ func BookRoomHandler(w http.ResponseWriter, r *http.Request) {
 	})
 	db.Unlock()
 
-	sendEmailNotification(req.UserEmail, room.Number, room.Type)
+	// Запуск отправки письма
+	sendEmailNotification(req.UserEmail, room.Number)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(`{"status":"confirmed"}`))
 }
 
-// Хендлер для главной страницы, чтобы убрать ошибку 404 page not found
+// Заглушка для главной страницы localhost:8000
 func RootHandler(w http.ResponseWriter, r *http.Request) {
 	setupCORS(&w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(`<h1>Сервер отеля «Silence» запущен успешно!</h1><p>Для просмотра комнат перейдите на <a href="/api/rooms">/api/rooms</a></p>`))
+	w.Write([]byte(`<h2>Локальный сервер отеля запущен успешно.</h2><p>Данные доступны по адресу: <a href="/api/rooms">/api/rooms</a></p>`))
 }
 
 func main() {
-	http.HandleFunc("/", RootHandler) // Теперь на главной странице будет красивое уведомление вместо 404
+	// Маршруты и хвосты ссылок для локальной работы
+	http.HandleFunc("/", RootHandler)
 	http.HandleFunc("/api/rooms", GetRoomsHandler)
 	http.HandleFunc("/api/book", BookRoomHandler)
 
-	log.Println("Сервер запущен на порту :8000")
-	if err := http.ListenAndServe("0.0.0.0:8000", nil); err != nil {
+	log.Println("Локальный сервер запущен на http://localhost:8000")
+	// На localhost слушаем внутренний интерфейс 127.0.0.1
+	if err := http.ListenAndServe("127.0.0.1:8000", nil); err != nil {
 		log.Fatal(err)
 	}
 }
-
