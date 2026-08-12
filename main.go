@@ -14,8 +14,8 @@ import (
 type RoomStatus string
 
 const (
-	StatusFree   RoomStatus = "free"   // Светло-серый
-	StatusBooked RoomStatus = "booked" // Темно-серый
+	StatusFree   RoomStatus = "free"
+	StatusBooked RoomStatus = "booked"
 )
 
 type Room struct {
@@ -51,47 +51,16 @@ var db = &Store{
 	},
 }
 
-// ---- НАСТРОЙКА SMTP ДЛЯ ОТПРАВКИ EMAIL ----
-const (
-	smtpHost     = "smtp.yandex.ru"            // Адрес SMTP вашего провайдера
-	smtpPort     = "587"                       // Порт (обычно 587 или 465)
-	senderEmail  = "your-hostel@yandex.ru"     // Ваша рабочая почта хостела
-	senderPass   = "your-app-password-here"    // Пароль приложения (не обычный пароль!)
-	managerEmail = "manager-hostel@yandex.ru"  // Почта управляющего для копий уведомлений
-)
-
-// Функция отправки письма
-func sendEmailNotification(userEmail, roomNumber, roomType string) error {
-	auth := smtp.PlainAuth("", senderEmail, senderPass, smtpHost)
-
-	// Формируем красивое текстовое письмо в стиле минимализма
-	subject := fmt.Sprintf("Subject: Успешное бронирование номера %s\n", roomNumber)
-	mime := "MIME-version: 1.0;\nContent-Type: text/plain; charset=\"UTF-8\";\n\n"
+func sendEmailNotification(userEmail, roomNumber, roomType string) {
+	// Демо-заглушка. Письмо логируется в терминал сервера, чтобы не вызывать зависаний
+	log.Printf("[Имитация SMTP]: Отправка письма на %s. Номер %s забронирован.", userEmail, roomNumber)
 	
-	var body bytes.Buffer
-	body.WriteString("Отель «Silence»\n")
-	body.WriteString("-------------------------------------------\n")
-	body.WriteString("Здравствуйте!\n\n")
-	body.WriteString(fmt.Sprintf("Вы успешно забронировали номер %s (%s).\n", roomNumber, roomType))
-	body.WriteString(fmt.Sprintf("Дата оформления: %s\n\n", time.Now().Format("02.01.2006 15:04")))
-	body.WriteString("Ждем вас по адресу: ул. Мира, д. 10.\n")
-	body.WriteString("-------------------------------------------\n")
-	body.WriteString("Это автоматическое уведомление.")
-
-	msg := []byte(subject + mime + body.String())
-	recipients := []string{userEmail, managerEmail}
-
-	// Отправляем асинхронно, чтобы не тормозить HTTP-ответ пользователю
-	go func() {
-		err := smtp.SendMail(smtpHost+":"+smtpPort, auth, senderEmail, recipients, msg)
-		if err != nil {
-			log.Printf("[Ошибка SMTP]: Не удалось отправить email: %v", err)
-		} else {
-			log.Printf("[Успех SMTP]: Письмо о брони номера %s отправлено на %s", roomNumber, userEmail)
-		}
-	}()
-
-	return nil
+	// Если захотите включить настоящую отправку, раскомментируйте код ниже:
+	/*
+	auth := smtp.PlainAuth("", "user@yandex.ru", "password", "smtp.yandex.ru")
+	msg := []byte("Subject: Бронь\n\nНомер забронирован.")
+	smtp.SendMail("smtp.yandex.ru:587", auth, "user@yandex.ru", []string{userEmail}, msg)
+	*/
 }
 
 func setupCORS(w *http.ResponseWriter) {
@@ -99,7 +68,6 @@ func setupCORS(w *http.ResponseWriter) {
 	(*w).Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 	(*w).Header().Set("Access-Control-Allow-Headers", "Content-Type")
 }
-// Handler 1: Отдача комнат для фронтенда
 func GetRoomsHandler(w http.ResponseWriter, r *http.Request) {
 	setupCORS(&w)
 	if r.Method == "OPTIONS" { return }
@@ -107,7 +75,7 @@ func GetRoomsHandler(w http.ResponseWriter, r *http.Request) {
 	db.RLock()
 	defer db.RUnlock()
 
-	var list []Room
+	var list []Room = make([]Room, 0)
 	for _, room := range db.Rooms {
 		list = append(list, *room)
 	}
@@ -116,7 +84,6 @@ func GetRoomsHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(list)
 }
 
-// Handler 2: Мгновенное бронирование и инициация отправки Email
 func BookRoomHandler(w http.ResponseWriter, r *http.Request) {
 	setupCORS(&w)
 	if r.Method == "OPTIONS" { return }
@@ -134,56 +101,44 @@ func BookRoomHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.UserEmail == "" {
-		http.Error(w, "Email требуется для уведомления", http.StatusBadRequest)
-		return
-	}
-
 	db.Lock()
 	room, exists := db.Rooms[req.RoomID]
-
-	// Защита от Race Conditions
 	if !exists || room.Status != StatusFree {
 		db.Unlock()
-		http.Error(w, "Номер уже забронирован кем-то другим", http.StatusConflict)
+		http.Error(w, "Номер занят", http.StatusConflict)
 		return
 	}
 
-	// Мгновенно переводим в статус занят (темно-серый)
 	room.Status = StatusBooked
-	
-	newBooking := Booking{
+	db.Bookings = append(db.Bookings, Booking{
 		ID:        len(db.Bookings) + 1,
 		RoomID:    req.RoomID,
 		UserEmail: req.UserEmail,
 		BookedAt:  time.Now(),
-	}
-	db.Bookings = append(db.Bookings, newBooking)
+	})
 	db.Unlock()
 
-	// Триггерим отправку Email
 	sendEmailNotification(req.UserEmail, room.Number, room.Type)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"status": "confirmed", "message": "Бронирование оформлено, чек отправлен на email"})
+	w.Write([]byte(`{"status":"confirmed"}`))
+}
+
+// Хендлер для главной страницы, чтобы убрать ошибку 404 page not found
+func RootHandler(w http.ResponseWriter, r *http.Request) {
+	setupCORS(&w)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(`<h1>Сервер отеля «Silence» запущен успешно!</h1><p>Для просмотра комнат перейдите на <a href="/api/rooms">/api/rooms</a></p>`))
 }
 
 func main() {
+	http.HandleFunc("/", RootHandler) // Теперь на главной странице будет красивое уведомление вместо 404
 	http.HandleFunc("/api/rooms", GetRoomsHandler)
 	http.HandleFunc("/api/book", BookRoomHandler)
 
-	fmt.Println("Сервер отеля «Silence» запущен на http://localhost:8000")
-	if err := http.ListenAndServe(":8000", nil); err != nil {
-		log.Fatal(err)
-	}
-	
-	// Маршруты для фронтенда (совпадают с index.html на 100%)
-	http.HandleFunc("/api/rooms", GetRoomsHandler)
-	http.HandleFunc("/api/book", BookRoomHandler) // Теперь адрес строго /api/book
-
-	fmt.Println("Сервер отеля «Silence» запущен на http://localhost:8000")
-	if err := http.ListenAndServe(":8000", nil); err != nil {
+	log.Println("Сервер запущен на порту :8000")
+	if err := http.ListenAndServe("0.0.0.0:8000", nil); err != nil {
 		log.Fatal(err)
 	}
 }
